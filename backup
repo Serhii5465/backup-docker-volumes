@@ -15,7 +15,7 @@ fi
 
 backup_volume(){
     local name_container=$1
-    local timestamp=$(date +"%Y-%m-%d_%H:%M")
+    local timestamp=$(date +"%Y-%m-%d_%H-%M")
     local volume_name=$(docker inspect -f '{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}} {{end}}{{end}}' ${name_container} | xargs)
     local backup_name="${volume_name}_${timestamp}.tar.gz"
     local backup_end_point="${BACKUP_DIR}/${name_container}"
@@ -33,7 +33,7 @@ backup_volume(){
 
     cleanup_backups "$backup_end_point"
 
-    docker start "$name_container"
+    docker start "$name_container" >> /dev/null
 }
 
 cleanup_backups(){
