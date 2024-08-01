@@ -7,7 +7,8 @@ set -o nounset
 BACKUP_DIR="${HOME}/backup/docker-volumes"
 VERSIONS=3
 
-LIST_CONTAINERS=("jenkins" "openvpn-as" "portainer")
+LIST_CONTAINERS=""
+mapfile -t LIST_CONTAINERS < <(docker ps -a --format '{{.Names}}')
 
 if [ ! -d "$BACKUP_DIR" ]; then
     mkdir -p "$BACKUP_DIR" && chmod -R 700 $(dirname "$BACKUP_DIR")
@@ -19,6 +20,11 @@ backup_volume(){
     local volume_name=$(docker inspect -f '{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}} {{end}}{{end}}' ${name_container} | xargs)
     local backup_name="${volume_name}_${timestamp}.tar.gz"
     local backup_end_point="${BACKUP_DIR}/${name_container}"
+
+    if [ -z "$volume_name" ]; then
+        printf "\nThe ${name_container} container has no mounted named volumes\n"
+        return
+    fi
 
     mkdir -p "$backup_end_point"
 

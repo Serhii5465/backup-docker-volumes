@@ -1,5 +1,5 @@
 ## Usage
 
-backup - Creating backups of Jenkins, OpenVPN and Portainer containers
+backup - Creating backups of containers, which have mounted named volumes
 
 restore [arhive.tar.gz] [volume] - Import the backup archive into the target volume. Stop the container associated with the volume before restoration
