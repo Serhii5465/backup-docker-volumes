@@ -69,7 +69,7 @@ pipeline {
                 credentialsId: 'backup-docker-volumes_repo_cred', 
                 url: 'git@github.com:Serhii5465/backup-docker-volumes.git'
 
-                stash includes: 'backup, restore', name: 'src'
+                stash includes: 'restore, **/*.py', name: 'src'
             }
         }
 
