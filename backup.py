@@ -1,4 +1,5 @@
 import argparse
+import logging
 import sys
 import docker
 import os
@@ -7,13 +8,12 @@ import posixpath
 import docker.models.containers
 from typing import Dict, List
 from pathlib import Path
-from src import constants
+from src import constants, log
 
 def create_backups_dir(dir_path: str) -> None:
     Path(dir_path).mkdir(parents=True, exist_ok=True)
-    subprocess.run(['chmod', '700', '-R', os.path.dirname(dir_path)], stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL)
 
-def run_container(client: docker.DockerClient, image: str, command: str, volumes: dict[str, str], environment: list) -> None:
+def run_container(client: docker.DockerClient, image: str, command: str, volumes: dict[str, str], environment: list, logger: logging.Logger) -> None:
         container = client.containers.run(
             image=image,
             volumes=volumes,
@@ -24,7 +24,7 @@ def run_container(client: docker.DockerClient, image: str, command: str, volumes
         )
 
         for log in container.logs(stream=True):
-            print(log.decode('utf-8').strip())
+            logger.info(log.decode('utf-8').strip())
 
 def parse_args(containers_names: List[str]) -> Dict[str, any]:
     parser = argparse.ArgumentParser(description='Backup Docker volumes')
@@ -43,7 +43,7 @@ def parse_args(containers_names: List[str]) -> Dict[str, any]:
     else:
         return args
 
-def backup_volume(client: docker.DockerClient, container: docker.models.containers.Container) -> None:
+def backup_volume(client: docker.DockerClient, container: docker.models.containers.Container, logger: logging.Logger) -> None:
     volumes = client.api.inspect_container(container.name)['Mounts']
     is_run_before = False
     
@@ -54,17 +54,17 @@ def backup_volume(client: docker.DockerClient, container: docker.models.containe
     backup_end_point = posixpath.join(constants.BACKUP_DIR, container.name)
 
     if not volumes:
-        print('The', container.name, 'container has no mounted volumes...')
+        logger.info('The ' + container.name + ' container has no mounted volumes...')
         return
 
     if container.status == 'running':
         is_run_before = True
-        print('Stopping', container.name)
+        logger.info('Stopping ' + container.name)
         container.stop()
 
     create_backups_dir(backup_end_point)
 
-    print('Creating backup', container.name, 'container volumes')
+    logger.info('Creating backup ' + container.name + ' container volumes')
 
     for item in volumes:
         if item['Type'] == type_vol:
@@ -89,22 +89,23 @@ def backup_volume(client: docker.DockerClient, container: docker.models.containe
                 image='ubuntu:24.04',
                 command=cmd,
                 volumes=vol,
-                environment=["LANG=C.UTF-8"]
+                environment=["LANG=C.UTF-8"],
+                logger=logger
             )
 
             upload(
                 client=client,
-                path_backup=posixpath.join(backup_end_point, backup_name_archive)
+                logger=logger
             )
         
         elif item['Type'] == 'bind':
-            print('The current volume is of type bind. Skipping')
+            logger.warning('The current volume is of type bind. Skipping')
 
     if is_run_before == True:
-        print('Container', container.name, 'starting')
+        logger.info('Container ' + container.name + ' starting')
         container.start()
 
-def upload(client: docker.DockerClient, path_backup: str) -> None:
+def upload(client: docker.DockerClient, logger: logging.Logger) -> None:
     cmd = 'sync --progress --progress /backup docker-backup-vol:'
     volumes = {
         posixpath.join(str(Path.home()), '.config/rclone/rclone.conf') : {
@@ -122,7 +123,8 @@ def upload(client: docker.DockerClient, path_backup: str) -> None:
         image='rclone/rclone:1.67',
         command=cmd,
         volumes=volumes,
-        environment=None
+        environment=None,
+        logger=logger
     )
 
 
@@ -133,16 +135,16 @@ def main() -> None:
 
     args = parse_args(containers_names)
     
-    create_backups_dir(constants.BACKUP_DIR)
+    logger = log.get_logger()
 
     if args['all'] is True:
         for item in containers:
-            backup_volume(client, item)
+            backup_volume(client, item, logger)
 
     if args['c']:
         for item in containers:
             if item.name == args['c']:
-                backup_volume(client, item)
+                backup_volume(client, item, logger)
 
     client.close()
 
