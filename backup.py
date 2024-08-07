@@ -2,29 +2,14 @@ import argparse
 import logging
 import sys
 import docker
-import os
-import subprocess
 import posixpath
 import docker.models.containers
 from typing import Dict, List
 from pathlib import Path
-from src import constants, log
+from src import constants, log, exec
 
 def create_backups_dir(dir_path: str) -> None:
     Path(dir_path).mkdir(parents=True, exist_ok=True)
-
-def run_container(client: docker.DockerClient, image: str, command: str, volumes: dict[str, str], environment: list, logger: logging.Logger) -> None:
-        container = client.containers.run(
-            image=image,
-            volumes=volumes,
-            command=command,
-            environment=environment,
-            remove=True,
-            detach=True
-        )
-
-        for log in container.logs(stream=True):
-            logger.info(log.decode('utf-8').strip())
 
 def parse_args(containers_names: List[str]) -> Dict[str, any]:
     parser = argparse.ArgumentParser(description='Backup Docker volumes')
@@ -84,7 +69,7 @@ def backup_volume(client: docker.DockerClient, container: docker.models.containe
                 }
             }
 
-            run_container(
+            exec.run_container(
                 client=client,
                 image='ubuntu:24.04',
                 command=cmd,
@@ -118,7 +103,7 @@ def upload(client: docker.DockerClient, logger: logging.Logger) -> None:
         }
     }
 
-    run_container(
+    exec.run_container(
         client=client,
         image='rclone/rclone:1.67',
         command=cmd,
@@ -135,7 +120,7 @@ def main() -> None:
 
     args = parse_args(containers_names)
     
-    logger = log.get_logger()
+    logger = log.get_logger('backup')
 
     if args['all'] is True:
         for item in containers:
