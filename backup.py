@@ -12,6 +12,15 @@ def create_backups_dir(dir_path: str) -> None:
     Path(dir_path).mkdir(parents=True, exist_ok=True)
 
 def parse_args(containers_names: List[str]) -> Dict[str, any]:
+    """
+    Parse command-line arguments to determine which containers' volumes to back up.
+
+    Args:
+        containers_names (List[str]): List of container names available on the Docker host.
+
+    Returns:
+        Dict[str, any]: A dictionary containing parsed command-line arguments.
+    """
     parser = argparse.ArgumentParser(description='Backup Docker volumes')
     group = parser.add_mutually_exclusive_group()
 
@@ -29,8 +38,18 @@ def parse_args(containers_names: List[str]) -> Dict[str, any]:
         return args
 
 def backup_volume(client: docker.DockerClient, container: docker.models.containers.Container, logger: logging.Logger) -> None:
+    """
+    Create a backup of the Docker volumes attached to a specific container.
+
+    Args:
+        client (docker.DockerClient): Docker client instance.
+        container (docker.models.containers.Container): The container whose volumes will be backed up.
+        logger (logging.Logger): Logger for logging backup process information.
+    """
+    # Get the list of mounts (volumes) for the container
     list_cont_vol = client.api.inspect_container(container.name)['Mounts']
 
+    # Filter to get only volumes (not bind mounts)
     volumes = list(filter(lambda d: d.get('Type') == 'volume', list_cont_vol))
 
     logger.info('Creating a backup of ' + container.name + ' container volumes')
@@ -90,6 +109,7 @@ def backup_volume(client: docker.DockerClient, container: docker.models.containe
       
 def upload(client: docker.DockerClient, logger: logging.Logger) -> None:
     cmd = 'sync --progress --progress /backup docker-backup-vol:'
+    
     volumes = {
         posixpath.join(str(Path.home()), '.config/rclone/rclone.conf') : {
             'bind' : '/config/rclone/rclone.conf',
@@ -109,7 +129,6 @@ def upload(client: docker.DockerClient, logger: logging.Logger) -> None:
         environment=None,
         logger=logger
     )
-
 
 def main() -> None:
     client = docker.DockerClient(base_url='unix://var/run/docker.sock')
