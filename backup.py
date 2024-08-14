@@ -29,67 +29,65 @@ def parse_args(containers_names: List[str]) -> Dict[str, any]:
         return args
 
 def backup_volume(client: docker.DockerClient, container: docker.models.containers.Container, logger: logging.Logger) -> None:
-    volumes = client.api.inspect_container(container.name)['Mounts']
-    is_run_before = False
-    
-    type_vol = 'volume'
-    name_vol = ''
+    list_cont_vol = client.api.inspect_container(container.name)['Mounts']
+
+    volumes = list(filter(lambda d: d.get('Type') == 'volume', list_cont_vol))
+
+    logger.info('Creating a backup of ' + container.name + ' container volumes')
+
+    if not volumes:
+        logger.warning('The ' + container.name + ' container has no volumes...')
+        return
+
+    is_cont_run_before = False
+    curr_name_vol = ''
 
     backup_name_archive = ''
     backup_end_point = posixpath.join(constants.BACKUP_DIR, container.name)
 
-    if not volumes:
-        logger.info('The ' + container.name + ' container has no mounted volumes...')
-        return
-
     if container.status == 'running':
-        is_run_before = True
+        is_cont_run_before = True
         logger.info('Stopping ' + container.name)
         container.stop()
 
     create_backups_dir(backup_end_point)
 
-    logger.info('Creating backup ' + container.name + ' container volumes')
-
     for item in volumes:
-        if item['Type'] == type_vol:
-            name_vol = item['Name']
+        curr_name_vol = item['Name']
+        logger.info('Creating a backup of the ' + curr_name_vol + ' volume')
 
-            backup_name_archive = name_vol + '.tar.gz'
-            cmd = 'tar --totals --verbose --verbose -c -z -f ' + posixpath.join('/backup', backup_name_archive) + ' -C /data ./'
-            
-            vol = {
-                name_vol : {
-                    'bind' : '/data',
-                    'mode' : 'rw'
-                },
-                backup_end_point : {
-                    'bind' : '/backup',
-                    'mode' : 'rw'
-                }
-            }
-
-            exec.run_container(
-                client=client,
-                image='ubuntu:24.04',
-                command=cmd,
-                volumes=vol,
-                environment=["LANG=C.UTF-8"],
-                logger=logger
-            )
-
-            upload(
-                client=client,
-                logger=logger
-            )
+        backup_name_archive = curr_name_vol + '.tar.gz'
+        cmd = 'tar --totals --verbose --verbose -c -z -f ' + posixpath.join('/backup', backup_name_archive) + ' -C /data ./'
         
-        elif item['Type'] == 'bind':
-            logger.warning('The current volume is of type bind. Skipping')
+        vol = {
+            curr_name_vol : {
+                'bind' : '/data',
+                'mode' : 'rw'
+            },
+            backup_end_point : {
+                'bind' : '/backup',
+                'mode' : 'rw'
+            }
+        }
 
-    if is_run_before == True:
+        exec.run_container(
+            client=client,
+            image='ubuntu:24.04',
+            command=cmd,
+            volumes=vol,
+            environment=["LANG=C.UTF-8"],
+            logger=logger
+        )
+
+        upload(
+            client=client,
+            logger=logger
+        )
+
+    if is_cont_run_before == True:
         logger.info('Container ' + container.name + ' starting')
         container.start()
-
+      
 def upload(client: docker.DockerClient, logger: logging.Logger) -> None:
     cmd = 'sync --progress --progress /backup docker-backup-vol:'
     volumes = {
