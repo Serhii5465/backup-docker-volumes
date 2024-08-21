@@ -6,7 +6,7 @@ import posixpath
 import os
 from pathlib import Path
 from typing import Dict, List
-from src import log, exec
+from src import log, exec, constants
 
 def restore_volume(client: docker.DockerClient, logger: logging.Logger, name_volume: str, path_archive: str) -> None:
     path_target_vol = posixpath.join('/', 'backup')
@@ -24,9 +24,6 @@ def restore_volume(client: docker.DockerClient, logger: logging.Logger, name_vol
     }
 
     cmd = 'tar --totals -xvzf ' + name_archive + ' -C ' + path_target_vol
-
-    print(bind)
-    print(cmd)
 
     logger.info('Restoring ' + name_volume)
 
@@ -59,15 +56,13 @@ def main() -> None:
     client = docker.DockerClient(base_url='unix://var/run/docker.sock')
     args = parse_args([item.name for item in client.volumes.list()])
 
-    print(args)
-
     path_archive = args['archive']
     volume = args['v']
 
     if not Path(path_archive).is_file():
         raise FileNotFoundError('The file ' + path_archive + ' does not exist')
 
-    logger = log.get_logger('restore')
+    logger = log.init_logger(constants.LOGS_DIR_RESTORE_MODE, None)
 
     containers = client.containers.list(filters={'volume': volume})
 
