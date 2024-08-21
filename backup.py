@@ -37,7 +37,7 @@ def parse_args(containers_names: List[str]) -> Dict[str, any]:
     else:
         return args
 
-def backup_volume(client: docker.DockerClient, container: docker.models.containers.Container, logger: logging.Logger) -> None:
+def backup_volume(client: docker.DockerClient, container: docker.models.containers.Container) -> None:
     """
     Create a backup of the Docker volumes attached to a specific container.
 
@@ -52,11 +52,13 @@ def backup_volume(client: docker.DockerClient, container: docker.models.containe
     # Filter to get only volumes (not bind mounts)
     volumes = list(filter(lambda d: d.get('Type') == 'volume', list_cont_vol))
 
-    logger.info('Creating a backup of ' + container.name + ' container volumes')
+    logger = log.init_logger(constants.LOGS_DIR_BACKUP_MODE, container.name)
 
     if not volumes:
         logger.warning('The ' + container.name + ' container has no volumes...')
         return
+
+    logger.info('Creating a backup of ' + container.name + ' container volumes')
 
     is_cont_run_before = False
     curr_name_vol = ''
@@ -71,15 +73,15 @@ def backup_volume(client: docker.DockerClient, container: docker.models.containe
 
     create_backups_dir(backup_end_point)
 
-    for item in volumes:
-        curr_name_vol = item['Name']
-        logger.info('Creating a backup of the ' + curr_name_vol + ' volume')
+    for volume in volumes:
+        source = volume['Name']
+        logger.info('Creating a backup of the ' + source + ' volume')
 
-        backup_name_archive = curr_name_vol + '.tar.gz'
-        cmd = 'tar --totals --verbose --verbose -c -z -f ' + posixpath.join('/backup', backup_name_archive) + ' -C /data ./'
+        backup_name_archive = source + '.tar.gz'
+        cmd = 'tar --totals --verbose --verbose --create --gzip --file=' + posixpath.join('/backup', backup_name_archive) + ' --directory=/data ./'
         
-        vol = {
-            curr_name_vol : {
+        bind = {
+            source : {
                 'bind' : '/data',
                 'mode' : 'rw'
             },
@@ -93,39 +95,43 @@ def backup_volume(client: docker.DockerClient, container: docker.models.containe
             client=client,
             image='ubuntu:24.04',
             command=cmd,
-            volumes=vol,
+            volumes=bind,
             environment=["LANG=C.UTF-8"],
             logger=logger
         )
 
         upload(
             client=client,
-            logger=logger
+            logger=logger,
+            sync_dir=container.name
         )
 
     if is_cont_run_before == True:
         logger.info('Container ' + container.name + ' starting')
         container.start()
       
-def upload(client: docker.DockerClient, logger: logging.Logger) -> None:
-    cmd = 'sync --progress --progress /backup docker-backup-vol:'
-    
-    volumes = {
+def upload(client: docker.DockerClient, logger: logging.Logger, sync_dir: str) -> None:
+    host_source = posixpath.join(constants.BACKUP_DIR, sync_dir)
+    cont_source = '/backup'
+    destination = posixpath.join(constants.REMOTE_STORAGE, sync_dir)
+
+    cmd = 'sync --progress --progress ' + cont_source + ' ' + destination
+    bind = {
         posixpath.join(str(Path.home()), '.config/rclone/rclone.conf') : {
             'bind' : '/config/rclone/rclone.conf',
             'mode' : 'rw'
         },
-        constants.BACKUP_DIR : {
-            'bind' : '/backup',
+        host_source: {
+            'bind' : cont_source,
             'mode' : 'rw'
         }
     }
-
+    
     exec.run_container(
         client=client,
         image='rclone/rclone:1.67',
         command=cmd,
-        volumes=volumes,
+        volumes=bind,
         environment=None,
         logger=logger
     )
@@ -137,16 +143,14 @@ def main() -> None:
 
     args = parse_args(containers_names)
     
-    logger = log.get_logger('backup')
-
     if args['all'] is True:
         for item in containers:
-            backup_volume(client, item, logger)
+            backup_volume(client, item)
 
     if args['c']:
         for item in containers:
             if item.name == args['c']:
-                backup_volume(client, item, logger)
+                backup_volume(client, item)
 
     client.close()
 

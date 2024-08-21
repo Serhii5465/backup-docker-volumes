@@ -5,25 +5,43 @@ from datetime import datetime
 from pathlib import Path
 from src import constants
 
-def get_logger(label: str) -> logging.Logger:
-    """
-    Creating file of logging and Logger object with custom preset.
-    Returns:
-        Instance of Logger.
-    """
+def init_logger(root_logs_dir: str, subdir: str) -> logging.Logger:
     timestamp = datetime.now().strftime("%Y-%m-%d_%H\uA789%M\uA789%S")
+    name_log_file = timestamp + '.log'
 
-    full_path_log_file = posixpath.join(constants.LOGS_DIR, label + '_' + timestamp + '.log')
+    path_dir_log = ''
 
-    Path(constants.LOGS_DIR).mkdir(parents=True, exist_ok=True)
+    if subdir is None:
+        path_dir_log = root_logs_dir
+    else:
+        path_dir_log = posixpath.join(root_logs_dir, subdir)
+    
+    full_path_log_file = posixpath.join(path_dir_log, name_log_file)
 
-    log_format = "%(levelname)s %(asctime)s - %(message)s"
+    Path(path_dir_log).mkdir(parents=True, exist_ok=True)
+
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+
+    log_format = logging.Formatter('%(levelname)s %(asctime)s - %(message)s')
+
     file_handler = logging.FileHandler(filename=full_path_log_file)
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(log_format)
+
     stdout_handler = logging.StreamHandler(stream=sys.stdout)
-    handlers = [file_handler, stdout_handler]
+    stdout_handler.setLevel(logging.INFO)
+    stdout_handler.setFormatter(log_format)
 
-    logging.basicConfig(level=logging.INFO,
-                        format=log_format,
-                        handlers=handlers) 
+    if not logger.hasHandlers():
+        logger.addHandler(file_handler)
+        logger.addHandler(stdout_handler)
+    else:
+        for handler in logger.handlers[:]:
+            if isinstance(handler, logging.FileHandler):
+                logger.removeHandler(handler)
+                handler.close()
 
-    return logging.getLogger()
+        logger.addHandler(file_handler)
+
+    return logger
