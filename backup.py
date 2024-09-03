@@ -50,7 +50,7 @@ def backup_volume(client: docker.DockerClient, container: docker.models.containe
     list_cont_vol = client.api.inspect_container(container.name)['Mounts']
 
     # Filter to get only volumes (not bind mounts)
-    volumes = list(filter(lambda d: d.get('Type') == 'volume', list_cont_vol))
+    volumes = [item['Name'] for item in list(filter(lambda d: d.get('Type') == 'volume', list_cont_vol))]
 
     logger = log.init_logger(constants.LOGS_DIR_BACKUP_MODE, container.name)
 
@@ -61,7 +61,6 @@ def backup_volume(client: docker.DockerClient, container: docker.models.containe
     logger.info('Creating a backup of ' + container.name + ' container volumes')
 
     is_cont_run_before = False
-    curr_name_vol = ''
 
     backup_name_archive = ''
     backup_end_point = posixpath.join(constants.BACKUP_DIR, container.name)
@@ -72,39 +71,42 @@ def backup_volume(client: docker.DockerClient, container: docker.models.containe
         container.stop()
 
     create_backups_dir(backup_end_point)
+    
+    for source in volumes:
+        if not source in constants.LIST_EXCLUDE_VOLUMES:
+            logger.info('Creating a backup of the ' + source + ' volume')
 
-    for volume in volumes:
-        source = volume['Name']
-        logger.info('Creating a backup of the ' + source + ' volume')
+            backup_name_archive = source + '.tar.gz'
+            cmd = 'tar --totals --verbose --verbose --create --gzip --file=' + posixpath.join('/backup', backup_name_archive) + ' --directory=/data ./'
 
-        backup_name_archive = source + '.tar.gz'
-        cmd = 'tar --totals --verbose --verbose --create --gzip --file=' + posixpath.join('/backup', backup_name_archive) + ' --directory=/data ./'
-        
-        bind = {
-            source : {
-                'bind' : '/data',
-                'mode' : 'rw'
-            },
-            backup_end_point : {
-                'bind' : '/backup',
-                'mode' : 'rw'
+            bind = {
+                source : {
+                    'bind' : '/data',
+                    'mode' : 'rw'
+                },
+                backup_end_point : {
+                    'bind' : '/backup',
+                    'mode' : 'rw'
+                }
             }
-        }
 
-        exec.run_container(
-            client=client,
-            image='ubuntu:24.04',
-            command=cmd,
-            volumes=bind,
-            environment=["LANG=C.UTF-8"],
-            logger=logger
-        )
+            exec.run_container(
+                client=client,
+                image='ubuntu:24.04',
+                command=cmd,
+                volumes=bind,
+                environment=["LANG=C.UTF-8"],
+                logger=logger
+            )
 
-        upload(
-            client=client,
-            logger=logger,
-            sync_dir=container.name
-        )
+            upload(
+                client=client,
+                logger=logger,
+                sync_dir=container.name
+            )
+
+        else:
+            logger.warning('Volume ' + source + ' in the exclusion list. Skipping....')
 
     if is_cont_run_before == True:
         logger.info('Container ' + container.name + ' starting')
