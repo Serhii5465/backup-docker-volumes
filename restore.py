@@ -59,7 +59,7 @@ def main() -> None:
     path_archive = args['archive']
     volume = args['v']
 
-    if not Path(path_archive).is_file():
+    if not Path(path_archive).is_file() and not Path(path_archive).suffix == '.tar.gz':
         raise FileNotFoundError('The file ' + path_archive + ' does not exist')
 
     logger = log.init_logger(constants.LOGS_DIR_RESTORE_MODE, None)
