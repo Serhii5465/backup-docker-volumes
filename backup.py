@@ -1,10 +1,13 @@
 import argparse
+import glob
 import logging
 import sys
 import docker
 import posixpath
+import shutil
 import docker.models.containers
 from typing import Dict, List
+from datetime import datetime
 from pathlib import Path
 from src import constants, log, exec
 
@@ -62,72 +65,100 @@ def backup_volume(client: docker.DockerClient, container: docker.models.containe
     is_cont_run_before = False
 
     backup_name_archive = ''
-    backup_end_point = posixpath.join(constants.BACKUP_DIR, container.name)
+    backup_end_point = ''
+
+    name_file_snap_backup = ''
+
+    tar_command = ''
 
     if container.status == 'running':
         is_cont_run_before = True
         logger.info(f'Stopping {container.name}')
         container.stop()
 
-    for source in volumes:
-        if not source in constants.LIST_EXCLUDE_VOLUMES:
+    for volume in volumes:
+        if not volume in constants.LIST_EXCLUDE_VOLUMES:
+            backup_end_point = posixpath.join(constants.BACKUP_DIR, container.name, volume)
+
             create_backups_dir(backup_end_point)
 
-            logger.info(f'Creating a backup of the {source} volume')
+            logger.info(f'Creating a backup of the {volume} volume')
 
-            # backup_name_archive = source + '.tar.gz'
-            # cmd = 'tar --totals --verbose --verbose --create --gzip --file=' + posixpath.join('/backup', backup_name_archive) + ' --directory=/data ./'
+            list_snap_files = glob.glob(posixpath.join(backup_end_point, '*.snar'))
+            
+            backup_name_archive = f'{volume}_full-{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.tar.gz'
+            name_file_snap_backup = f'{volume}_full{constants.EXTENSION_FILE_SNAP_BACKUP}'
 
-            # bind = {
-            #     source : {
-            #         'bind' : '/data',
-            #         'mode' : 'rw'
-            #     },
-            #     backup_end_point : {
-            #         'bind' : '/backup',
-            #         'mode' : 'rw'
-            #     }
-            # }
+            if len(list_snap_files) > 0:
+                if posixpath.join(backup_end_point, f'{volume}_full{constants.EXTENSION_FILE_SNAP_BACKUP}') in list_snap_files:
+                    list_snap_diff_files = glob.glob(posixpath.join(backup_end_point, f'*diff*{constants.EXTENSION_FILE_SNAP_BACKUP}'))
+                    count_snap_diff_files = len(list_snap_diff_files)
 
-            # exec.run_container(
-            #     client=client,
-            #     image='ubuntu:24.04',
-            #     command=cmd,
-            #     volumes=bind,
-            #     environment=["LANG=C.UTF-8"],
-            #     logger=logger
-            # )
+                    if count_snap_diff_files < constants.COUNT_DIFF_SNAPSHOTS:
+                        count_snap_diff_files += 1
+                        temp_name_file_snap_backup = f'{volume}_diff{count_snap_diff_files}{constants.EXTENSION_FILE_SNAP_BACKUP}'
+                        shutil.copy(posixpath.join(backup_end_point, name_file_snap_backup), posixpath.join(backup_end_point, temp_name_file_snap_backup))
 
-            # upload(
-            #     client=client,
-            #     logger=logger,
-            #     sync_dir=container.name
-            # )
+                        name_file_snap_backup = temp_name_file_snap_backup
+                        backup_name_archive = f'{volume}_diff{count_snap_diff_files}-{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.tar.gz'
+
+            if len(list_snap_files) == constants.COUNT_SNAPSHOTS:
+                raise RuntimeError(f'Error creating a full backup of the {volume} volume. Please delete old volume snapshots.')
+
+            tar_command = (
+                f'tar --totals --verbose --verbose --listed-incremental={posixpath.join(constants.PATH_CONT_MOUNT_DEST, name_file_snap_backup)} '
+                f'--create --gzip --file={posixpath.join(constants.PATH_CONT_MOUNT_DEST, backup_name_archive)} '
+                f'--directory={constants.PATH_CONT_MOUNT_SRC} ./'
+            )
+
+            bind = {
+                volume : {
+                    'bind' : constants.PATH_CONT_MOUNT_SRC,
+                    'mode' : 'rw'
+                },
+                backup_end_point : {
+                    'bind' : constants.PATH_CONT_MOUNT_DEST,
+                    'mode' : 'rw'
+                }
+            }
+
+            exec.run_container(
+                client=client,
+                image='ubuntu:24.04',
+                command=tar_command,
+                volumes=bind,
+                environment=["LANG=C.UTF-8"],
+                logger=logger
+            )
+
+            upload(
+                client=client,
+                logger=logger,
+                backup_end_point=backup_end_point
+            )
 
         else:
-            logger.warning(f'Volume {source} in the exclusion list. Skipping....')
+            logger.warning(f'Volume {volume} in the exclusion list. Skipping....')
 
-    # if is_cont_run_before == True:
-    #     logger.info(f'Container {container.name} starting')
-    #     container.start()
+    if is_cont_run_before == True:
+        logger.info(f'Container {container.name} starting')
+        container.start()
       
-def upload(client: docker.DockerClient, logger: logging.Logger, sync_dir: str) -> None:
-    host_source = posixpath.join(constants.BACKUP_DIR, sync_dir)
-    cont_source = '/backup'
-    destination = posixpath.join(constants.REMOTE_STORAGE, sync_dir)
+def upload(client: docker.DockerClient, logger: logging.Logger, backup_end_point: str) -> None:
+    destination = posixpath.join(constants.REMOTE_STORAGE, "/".join(backup_end_point.split("/")[-2:]))
 
-    cmd = 'sync --progress --progress ' + cont_source + ' ' + destination
+    cmd = f'sync --progress --progress {constants.PATH_CONT_MOUNT_DEST} {destination}'
     bind = {
         posixpath.join(str(Path.home()), '.config/rclone/rclone.conf') : {
             'bind' : '/config/rclone/rclone.conf',
             'mode' : 'rw'
         },
-        host_source: {
-            'bind' : cont_source,
+        backup_end_point: {
+            'bind' : constants.PATH_CONT_MOUNT_DEST,
             'mode' : 'rw'
         }
     }
-    
+
     exec.run_container(
         client=client,
         image='rclone/rclone:1.67',

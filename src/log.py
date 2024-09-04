@@ -3,7 +3,6 @@ import sys
 import posixpath
 from datetime import datetime
 from pathlib import Path
-from src import constants
 
 def init_logger(root_logs_dir: str, subdir: str) -> logging.Logger:
     timestamp = datetime.now().strftime("%Y-%m-%d_%H\uA789%M\uA789%S")
