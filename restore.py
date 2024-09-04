@@ -8,34 +8,6 @@ from pathlib import Path
 from typing import Dict, List
 from src import log, exec, constants
 
-def restore_volume(client: docker.DockerClient, logger: logging.Logger, name_volume: str, path_archive: str) -> None:
-    path_target_vol = posixpath.join('/', 'backup')
-    name_archive = os.path.basename(path_archive)
-
-    bind = {
-        name_volume : {
-            'bind' : path_target_vol,
-            'mode' : 'rw'
-        },
-        path_archive : {
-            'bind' : posixpath.join('/', name_archive),
-            'mode' : 'ro'
-        }
-    }
-
-    cmd = 'tar --totals -xvzf ' + name_archive + ' -C ' + path_target_vol
-
-    logger.info('Restoring ' + name_volume)
-
-    exec.run_container(
-        client=client,
-        image='ubuntu:24.04',
-        command=cmd,
-        volumes=bind,
-        environment=["LANG=C.UTF-8"],
-        logger=logger
-    )
-
 def parse_args(volume_names: List[str]) -> Dict[str, any]:
     parser = argparse.ArgumentParser(description='Backup Docker volumes')
 
@@ -51,6 +23,33 @@ def parse_args(volume_names: List[str]) -> Dict[str, any]:
         parser.parse_args(['-h'])
     else:
         return args
+
+def restore_volume(client: docker.DockerClient, logger: logging.Logger, target_volume: str, path_archive: str) -> None:
+    name_archive = os.path.basename(path_archive)
+
+    bind_volumes = {
+        target_volume : {
+            'bind' : constants.PATH_CONT_MOUNT_DEST,
+            'mode' : 'rw'
+        },
+        path_archive : {
+            'bind' : posixpath.join('/', name_archive),
+            'mode' : 'ro'
+        }
+    }
+
+    tar_cmd = f'tar --listed-incremental=/dev/null --verbose --totals --gzip --extract --file={name_archive} --directory={constants.PATH_CONT_MOUNT_DEST}'
+
+    logger.info(f'Restoring {target_volume}')
+
+    exec.run_container(
+        client=client,
+        image='ubuntu:24.04',
+        command=tar_cmd,
+        volumes=bind_volumes,
+        environment=["LANG=C.UTF-8"],
+        logger=logger
+    )
 
 def main() -> None:
     client = docker.DockerClient(base_url='unix://var/run/docker.sock')
@@ -69,7 +68,7 @@ def main() -> None:
     if not containers:
         logger.warning(f'The volume {volume} is not bound to any containers on the host')
     else:
-        logger.info('The volume ' + volume + ' is bound to:')
+        logger.info(f'The volume {volume} is bound to:')
         for item in containers:
             logger.info(f'Container ID: {item.id}, Name: {item.name}, Status: {item.status}')
 
@@ -81,7 +80,7 @@ def main() -> None:
     restore_volume(
         client=client,
         path_archive=path_archive,
-        name_volume=volume,
+        target_volume=volume,
         logger=logger
     )
     
