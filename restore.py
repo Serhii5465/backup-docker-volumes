@@ -60,23 +60,23 @@ def main() -> None:
     volume = args['v']
 
     if not Path(path_archive).is_file() and not Path(path_archive).suffix == '.tar.gz':
-        raise FileNotFoundError('The file ' + path_archive + ' does not exist')
+        raise FileNotFoundError(f'The file {path_archive} does not exist')
 
     logger = log.init_logger(constants.LOGS_DIR_RESTORE_MODE, None)
 
     containers = client.containers.list(filters={'volume': volume})
 
     if not containers:
-        logger.warning('The volume ' + volume + ' is not bound to any containers on the host')
+        logger.warning(f'The volume {volume} is not bound to any containers on the host')
     else:
         logger.info('The volume ' + volume + ' is bound to:')
         for item in containers:
-            logger.info('Container ID: ' + item.id + ', Name: ' + item.name + ', Status: ' + item.status)
+            logger.info(f'Container ID: {item.id}, Name: {item.name}, Status: {item.status}')
 
             if item.status == 'running':
                 item.stop()
                 item.reload()
-                logger.info('Current state of ' + item.name + ' is ' + item.status)
+                logger.info(f'Current state of {item.name} is {item.status}')
 
     restore_volume(
         client=client,
