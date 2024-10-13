@@ -1,7 +1,7 @@
 import posixpath
 from pathlib import Path
 
-BACKUP_DIR = '/mnt/backup_docker_volume'
+BACKUP_DIR = '/mnt/backup_docker_volumes'
 
 LOGS_DIR_BACKUP_MODE = posixpath.join(str(Path.home()), '.logs/backup-docker-volumes')
 
