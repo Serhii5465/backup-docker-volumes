@@ -1,4 +1,4 @@
-@Library(['PrepEnvForBuild', 'DeployWinAgents']) _
+@Library(['PrepEnvForBuild', 'DeployOnAgents']) _
 
 node('master') {
     def config = [
